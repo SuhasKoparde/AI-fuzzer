@@ -16,7 +16,7 @@ class FuzzCaseGenerator:
     def generate(self, count: int = 4) -> list[FuzzCase]:
         cases = []
 
-        for prompt, category in DEFAULT_CASES[:count]:
+        for category, prompt in DEFAULT_CASES[:count]:
             cases.append(
                 FuzzCase(
                     case_id=str(uuid.uuid4()),
