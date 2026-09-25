@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.targets import router as targets_router
+from app.api.connectivity import router as connectivity_router
 
 app = FastAPI(
     title="AI-Fuzzer",
@@ -9,6 +10,7 @@ app = FastAPI(
 )
 
 app.include_router(targets_router)
+app.include_router(connectivity_router)
 
 
 @app.get("/")
@@ -23,3 +25,4 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
