@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Gauge,
@@ -7,44 +7,32 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { EmptyState } from '../components/common/EmptyState';
 import { MetricCard } from '../components/common/MetricCard';
 import { SectionCard } from '../components/common/SectionCard';
-import { SeverityBadge } from '../components/common/SeverityBadge';
-import { StatusBadge } from '../components/common/StatusBadge';
-import { ConfidenceBadge } from '../components/common/ConfidenceBadge';
-import { mockAppService } from '../services/mockApi';
-import {
-  severityDistribution,
-  vulnerabilityDistribution,
-} from '../data/mockData';
-import type { DashboardSummary, Finding, Scan, SystemHealthState } from '../types';
-
-const pieColors = ['#5bc0ff', '#7dd3fc', '#fbbf24', '#f97316'];
+import { ApiError, getHealth, getTargets } from '../services/api';
+import type { ApiHealth, ApiTarget } from '../types';
 
 export function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [scans, setScans] = useState<Scan[]>([]);
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [health, setHealth] = useState<SystemHealthState | null>(null);
+  const [health, setHealth] = useState<ApiHealth | null>(null);
+  const [targets, setTargets] = useState<ApiTarget[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadDashboard = useCallback(() => Promise.all([getHealth(), getTargets()])
+    .then(([healthResult, targetResult]) => {
+      setHealth(healthResult);
+      setTargets(targetResult);
+      setError('');
+    })
+    .catch((requestError: unknown) => {
+      setError(requestError instanceof ApiError ? requestError.message : 'Unable to load backend data.');
+    })
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => {
-    Promise.all([
-      mockAppService.getDashboardSummary(),
-      mockAppService.getScans(),
-      mockAppService.getFindings(),
-      mockAppService.getSystemHealth(),
-    ]).then(([metrics, scanData, findingData, healthData]) => {
-      setSummary(metrics);
-      setScans(scanData);
-      setFindings(findingData);
-      setHealth(healthData);
-    });
-  }, []);
-
-  if (!summary || !health) {
-    return <div className="page-loading">Loading dashboard…</div>;
-  }
+    void loadDashboard();
+  }, [loadDashboard]);
 
   return (
     <div className="dashboard-page">
@@ -59,178 +47,113 @@ export function DashboardPage() {
         </Link>
       </div>
 
-      <div className="metric-grid">
-        <MetricCard
-          icon={<ShieldCheck size={18} />}
-          label="Total Scans"
-          value={String(summary.totalScans)}
-          detail="Across 4 active targets"
-          tone="default"
-        />
-        <MetricCard
-          icon={<Gauge size={18} />}
-          label="Tests Executed"
-          value={String(summary.testsExecuted)}
-          detail="Across all scan stages"
-          tone="success"
-        />
-        <MetricCard
-          icon={<AlertTriangle size={18} />}
-          label="Vulnerabilities Found"
-          value={String(summary.vulnerabilitiesFound)}
-          detail="High confidence findings"
-          tone="warning"
-        />
-        <MetricCard
-          icon={<ShieldAlert size={18} />}
-          label="Critical / High"
-          value={String(summary.criticalHighFindings)}
-          detail="Require immediate review"
-          tone="danger"
-        />
-      </div>
+      {error ? (
+        <div className="inline-message inline-message--error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="text-button" onClick={() => {
+            setLoading(true);
+            setError('');
+            void loadDashboard();
+          }} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
 
-      <div className="health-grid">
-        <div className="health-panel">
-          <div className="health-panel__label">Scanner Engine</div>
-          <div className="health-panel__value">{health.scannerEngine}</div>
-        </div>
-        <div className="health-panel">
-          <div className="health-panel__label">Response Analyzer</div>
-          <div className="health-panel__value">{health.responseAnalyzer}</div>
-        </div>
-        <div className="health-panel">
-          <div className="health-panel__label">Evidence Store</div>
-          <div className="health-panel__value">{health.evidenceStore}</div>
-        </div>
-        <div className="health-panel">
-          <div className="health-panel__label">Active Scans</div>
-          <div className="health-panel__value">{health.activeScans}</div>
-        </div>
-      </div>
+      {loading ? <div className="page-loading">Loading live backend data…</div> : null}
 
-      <div className="chart-grid">
-        <SectionCard title="Severity Distribution" subtitle="Detected risk mix across completed scans">
-          <div className="chart-wrap chart-wrap--bar">
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={severityDistribution} margin={{ top: 12, right: 8, left: -18, bottom: 6 }}>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#a8b3c7', fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#a8b3c7', fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{
-                    background: '#141b2d',
-                    border: '1px solid #21314a',
-                    borderRadius: '10px',
-                    color: '#f0f7ff',
-                  }}
-                />
-                <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                  {severityDistribution.map((entry, index) => (
-                    <Cell
-                      key={entry.name}
-                      fill={['#ef4444', '#f97316', '#fbbf24', '#60a5fa', '#7dd3fc'][index]}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+      {!loading && !error ? (
+        <>
+          <div className="metric-grid">
+            <MetricCard
+              icon={<ShieldCheck size={18} />}
+              label="Total Scans"
+              value="Unavailable"
+              detail="The backend has no scan-list or aggregate endpoint"
+            />
+            <MetricCard
+              icon={<Gauge size={18} />}
+              label="Tests Executed"
+              value="Unavailable"
+              detail="Execution totals are only returned for a known scan ID"
+              tone="success"
+            />
+            <MetricCard
+              icon={<AlertTriangle size={18} />}
+              label="Vulnerabilities Found"
+              value="Unavailable"
+              detail="Findings can be reviewed after loading a scan"
+              tone="warning"
+            />
+            <MetricCard
+              icon={<ShieldAlert size={18} />}
+              label="Critical / High"
+              value="Unavailable"
+              detail="No cross-scan severity totals are available"
+              tone="danger"
+            />
           </div>
-        </SectionCard>
 
-        <SectionCard title="Vulnerability Distribution" subtitle="Core AI security categories in current test set">
-          <div className="chart-wrap chart-wrap--pie">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={vulnerabilityDistribution}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={52}
-                  outerRadius={80}
-                  paddingAngle={4}
-                >
-                  {vulnerabilityDistribution.map((entry, index) => (
-                    <Cell key={entry.name} fill={pieColors[index % pieColors.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    background: '#141b2d',
-                    border: '1px solid #21314a',
-                    borderRadius: '10px',
-                    color: '#f0f7ff',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="legend-list">
-              {vulnerabilityDistribution.map((entry, index) => (
-                <div key={entry.name} className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: pieColors[index % pieColors.length] }} />
-                  <span>{entry.name}</span>
-                  <strong>{entry.value}</strong>
-                </div>
-              ))}
+          <div className="health-grid">
+            <div className="health-panel">
+              <div className="health-panel__label">Backend Service</div>
+              <div className="health-panel__value">{health?.status ?? 'Unavailable'}</div>
+            </div>
+            <div className="health-panel">
+              <div className="health-panel__label">Registered Targets</div>
+              <div className="health-panel__value">{targets.length}</div>
+            </div>
+            <div className="health-panel">
+              <div className="health-panel__label">Response Analyzer</div>
+              <div className="health-panel__value">Not reported by health endpoint</div>
+            </div>
+            <div className="health-panel">
+              <div className="health-panel__label">Active Scans</div>
+              <div className="health-panel__value">Unavailable without a scan ID</div>
             </div>
           </div>
-        </SectionCard>
-      </div>
 
-      <div className="two-column-grid">
-        <SectionCard title="Recent Scans" subtitle="Latest execution activity" className="table-card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Scan ID</th>
-                  <th>Target</th>
-                  <th>Status</th>
-                  <th>Tests</th>
-                  <th>Findings</th>
-                  <th>Started</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scans.map((scan) => (
-                  <tr key={scan.scanId}>
-                    <td className="mono-text">
-                      <Link to={`/scans/${scan.scanId}`} className="inline-link">{scan.scanId}</Link>
-                    </td>
-                    <td>{scan.target}</td>
-                    <td><StatusBadge status={scan.status} /></td>
-                    <td>{scan.testsCompleted}/{scan.testsTotal}</td>
-                    <td>{scan.findingsCount}</td>
-                    <td>{new Date(scan.startedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                    <td>{scan.duration}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
+          <div className="chart-grid">
+            <SectionCard title="Severity Distribution" subtitle="Detected risk mix across completed scans">
+              <div className="chart-wrap chart-wrap--bar">
+                <EmptyState
+                  title="Severity totals unavailable"
+                  description="The backend does not expose aggregate findings across scans. Load a known scan ID to review its findings."
+                  action={<Link to="/findings" className="secondary-button">Review findings</Link>}
+                />
+              </div>
+            </SectionCard>
 
-        <SectionCard title="Recent Findings" subtitle="Most recent vulnerability detections" className="findings-card">
-          <div className="finding-list">
-            {findings.slice(0, 4).map((finding) => (
-              <Link key={finding.findingId} to={`/findings/${finding.findingId}`} className="finding-item finding-item--link">
-                <div className="finding-item__meta">
-                  <span className="mono-text">{finding.findingId}</span>
-                  <SeverityBadge severity={finding.severity} />
-                </div>
-                <div className="finding-item__summary">
-                  <div>
-                    <strong>{finding.vulnerabilityType}</strong>
-                    <small>{finding.targetName}</small>
-                  </div>
-                  <ConfidenceBadge confidence={finding.confidence} />
-                </div>
-                <div className="finding-item__time">{new Date(finding.timestamp).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</div>
-              </Link>
-            ))}
+            <SectionCard title="Vulnerability Distribution" subtitle="Core AI security categories in current test set">
+              <div className="chart-wrap chart-wrap--pie">
+                <EmptyState
+                  title="Category totals unavailable"
+                  description="The backend does not expose cross-scan category statistics. Scan-specific results require a known scan ID."
+                  action={<Link to="/scans/history" className="secondary-button">Look up a scan</Link>}
+                />
+              </div>
+            </SectionCard>
           </div>
-        </SectionCard>
-      </div>
+
+          <div className="two-column-grid">
+            <SectionCard title="Recent Scans" subtitle="Latest execution activity" className="table-card">
+              <EmptyState
+                title="The backend does not provide a scan list"
+                description="Enter a known scan ID to view its status, execution metrics, and results."
+                action={<Link to="/scans/history" className="secondary-button">Look up a scan</Link>}
+              />
+            </SectionCard>
+
+            <SectionCard title="Recent Findings" subtitle="Most recent vulnerability detections" className="findings-card">
+              <EmptyState
+                title="Findings require a scan ID"
+                description="The backend provides findings within scan results, but does not expose a global findings feed."
+                action={<Link to="/findings" className="secondary-button">Review findings</Link>}
+              />
+            </SectionCard>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
